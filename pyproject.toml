@@ -12,12 +12,21 @@ classifiers = [
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Topic :: Software Development",
 ]
 readme = "README.md"
+authors = [{ name = "DEVPARMAR06" }]
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = ["mem0ai>=2.2", "ollama", "qdrant-client", "fastapi", "uvicorn", "httpx"]
+
+[project.urls]
+Homepage = "https://github.com/DEVPARMAR06/recallhook"
+Repository = "https://github.com/DEVPARMAR06/recallhook"
+Issues = "https://github.com/DEVPARMAR06/recallhook/issues"
 
 [project.optional-dependencies]
 headroom = ["headroom-ai[proxy]"]
@@ -31,3 +40,6 @@ packages = ["src/recallhook"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "bench", "scripts", "README.md", "LICENSE", "pyproject.toml"]

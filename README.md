@@ -6,7 +6,7 @@
 
 No cloud, no proxy, no API key: a Claude Code hook + [mem0](https://github.com/mem0ai/mem0) + your own [Ollama](https://ollama.com) models. In our tests it **costs the same as retyping the context yourself, and nothing at all on prompts that don't need it.**
 
-![recallhook dashboard](docs/dashboard.jpg)
+![recallhook dashboard](https://raw.githubusercontent.com/DEVPARMAR06/recallhook/main/docs/dashboard.jpg)
 
 ```text
 You:     What port does the Atlas dev server use, and how do I run its tests?
@@ -50,7 +50,7 @@ Requirements: Python 3.10+, [Ollama](https://ollama.com), Claude Code. An 8B mod
 ollama pull nomic-embed-text
 ollama pull qwen3:8b                 # extraction model (any chat model works)
 
-pip install git+https://github.com/DEVPARMAR06/recallhook
+pip install recallhook
 recallhook install                   # Windows: start at logon + add the hook
 recallhook status
 recallhook ui                        # open the dashboard
@@ -77,7 +77,7 @@ How to read this honestly:
 - Without memory the model can't know the answer, so it burns turns searching files and still fails; that is where the extra cost comes from.
 - **Against typing the facts yourself the cost is identical.** What you save is the typing, and not forgetting. The value is convenience and correctness, not a discount.
 - On unrelated prompts nothing is injected (cutoff 0.5), so there is no overhead. Our first version used a 0.3 cutoff and injected ~170 tokens of unrelated memories per prompt, which cost +24% on those calls. We measured it, found it, and fixed it.
-- Small sample, one synthetic project, one cheap model. Reproduce or extend it: [`bench/`](bench/).
+- Small sample, one synthetic project, one cheap model. Reproduce or extend it: [`bench/`](https://github.com/DEVPARMAR06/recallhook/tree/main/bench).
 
 ### What we tried that did *not* pay off
 
