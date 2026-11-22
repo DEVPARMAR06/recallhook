@@ -40,7 +40,7 @@ you type a prompt ──▶ Claude Code UserPromptSubmit hook ──▶ local ga
 |---|---|
 | Claude desktop app (Code tab) | works, tested |
 | Terminal `claude` | works, tested |
-| VS Code extension | uses the same `~/.claude/settings.json`, so it should work; independent testing welcome |
+| VS Code extension | works, tested |
 
 ## Quickstart
 

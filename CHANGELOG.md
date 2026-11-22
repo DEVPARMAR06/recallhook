@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.3
+- Docs only: the VS Code extension is now confirmed working (desktop app, VS Code and terminal are all tested).
+
 ## 0.1.2
 - Claude Code plugin + marketplace (`/plugin marketplace add DEVPARMAR06/recallhook`): registers the hook and adds `/recallhook:status` and `/recallhook:ui`.
 - `init --no-hook` / `install --no-hook` for plugin users; `status` recognises the plugin and warns if the hook is registered twice.
