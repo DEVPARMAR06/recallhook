@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Dashboard: "Why some prompts aren't stored" panel with counts by reason (question, task, automated message, too short, already stored, ...). Only the reason is logged, never the prompt text. Skipped prompts also appear in the live activity feed.
+- README: troubleshooting entry for "nothing is being stored" and the "Remember that ..." tip.
+
 ## 0.1.3
 - Docs only: the VS Code extension is now confirmed working (desktop app, VS Code and terminal are all tested).
 

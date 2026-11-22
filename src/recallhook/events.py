@@ -54,6 +54,14 @@ class EventLog:
                 row["stored"] += hits  # hits = memories created
         return [out[k] for k in sorted(out)]
 
+    def skipped(self, days: int = 30) -> dict[str, int]:
+        """Why prompts were not stored: reason -> count (reasons only, never prompt text)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT detail, COUNT(*) FROM events WHERE kind='skipped' AND ts>=? GROUP BY detail "
+                "ORDER BY COUNT(*) DESC", (time.time() - days * 86400,)).fetchall()
+        return {reason: n for reason, n in rows}
+
     def totals(self) -> dict:
         with self._lock:
             r = self._db.execute(

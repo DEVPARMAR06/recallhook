@@ -119,6 +119,7 @@ Similarity scores differ between embedding models, so you may need to retune `re
 - **Upgrade:** `pipx upgrade recallhook` (or `pip install -U recallhook`), then `recallhook install`. The running service keeps its old code until restarted, and `install` restarts it.
 - **Uninstall:** `recallhook uninstall` **first**, then `pipx uninstall recallhook` (or `pip uninstall recallhook`). Doing it the other way round leaves the autostart task and hook behind. Your memories stay in `~/.recallhook`; delete that folder to erase them.
 - **"It doesn't remember anything":** run `recallhook status`. It checks, in plain words: Ollama running? Models downloaded? Embedding model matches the store? Hook installed, and does the Python it points to still exist? Gateway up? The dashboard shows the same problems in a red banner.
+- **"Nothing is being stored":** that is usually the capture filter doing its job. Only statements of lasting facts are stored ("I always...", "my project X uses...", "Atlas deploys to...", "remember..."). Questions and task requests ("fix this bug", "add a retry") are recalled for but never stored, and most coding prompts are one of those. The dashboard's **"Why some prompts aren't stored"** panel shows how many prompts were skipped and why (question, task, automated message, too short, already stored). To store something for sure, start the prompt with **"Remember that ..."**.
 - **Logs:** `~/.recallhook/logs/gateway.log`.
 - A moved or deleted Python environment breaks the hook silently (it is fail-open on purpose). `recallhook install` fixes the path.
 
@@ -148,7 +149,7 @@ We first built this as a proxy in front of the [Headroom](https://github.com/cho
 
 `recallhook ui` or `http://127.0.0.1:8788/_recallhook/ui`
 
-Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day chart, a live activity feed showing which memories were recalled or stored, a **"needs attention" banner** when something is misconfigured, and search / delete for every memory. Localhost-only; writes need a custom header and a foreign `Host` header is rejected, so web pages can't reach it. Prompt text is never logged, only counts, timings and the memory snippets involved.
+Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day chart, a live activity feed showing which memories were recalled or stored, a **"needs attention" banner** when something is misconfigured, a **"why some prompts aren't stored"** breakdown, and search / delete for every memory. Localhost-only; writes need a custom header and a foreign `Host` header is rejected, so web pages can't reach it. Prompt text is never logged, only counts, timings and the memory snippets involved.
 
 ## Lessons baked in
 

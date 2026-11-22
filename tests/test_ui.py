@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -28,7 +30,7 @@ class Mem:
 
     def capture(self, text, user):
         self.captured.append((text, user))
-        return True
+        return None  # None = queued for extraction
 
 
 def client(mem):
@@ -81,7 +83,8 @@ def test_dashboard_data_endpoints(tmp_path):
         s = c.get("/_recallhook/api/summary").json()
         assert s["recalls"] == 1 and s["hit_rate"] == 100 and s["memories"] == 1
         assert s["problems"] == ["Model 'x' is not downloaded. Run: ollama pull x"]
-        assert c.get("/_recallhook/api/activity").json()[0]["kind"] == "recall"
+        kinds = {e["kind"] for e in c.get("/_recallhook/api/activity").json()}
+        assert {"recall", "skipped"} <= kinds  # the question was recalled for, and skipped for storage
         assert c.get("/_recallhook/api/series").json()[0]["recall"] == 1
 
 
@@ -131,3 +134,36 @@ def test_recall_query_keeps_both_ends_of_long_prompts():
     q = recall_query(long)
     assert q.startswith("HEAD") and q.endswith("TAIL") and len(q) <= 1001
     assert recall_query("short") == "short"
+
+
+def test_skipped_prompts_log_only_the_reason_never_the_text(tmp_path):
+    mem = Mem(tmp_path)
+    secret = "supersecret-project-codename"
+    with client(mem) as c:
+        def post(text):
+            return c.post("/_recallhook/api/prompt", json={"text": text, "session": "k"}, headers=H)
+
+        post(f"Which port does {secret} use for its dev server?")
+        post(f"Refactor the {secret} auth module to use async functions")
+        post("[SYSTEM NOTIFICATION - NOT USER INPUT] background task finished ok")
+        post("/clear")
+        post(f"I always deploy {secret} with Docker Compose")  # a lasting statement: queued, not skipped
+        summary = c.get("/_recallhook/api/summary").json()
+        feed = c.get("/_recallhook/api/activity?limit=50").json()
+    assert summary["skipped"] == {"question": 1, "task or request (no lasting fact)": 1,
+                                  "automated message": 1, "too short or a command": 1}
+    assert [m[0] for m in mem.captured] == [f"I always deploy {secret} with Docker Compose"]
+    assert secret not in json.dumps(feed) and secret not in json.dumps(summary)
+
+
+def test_capture_explains_why_it_declined(tmp_path):
+    from recallhook.memory import MemoryService
+
+    cfg = Config(queue_size=1)
+    svc = MemoryService(cfg, factory=lambda c: None)
+    assert svc.capture("too short", "u") == "too short or a command"
+    assert svc.capture("I always use pnpm for every JavaScript project", "u") is None
+    assert svc.capture("I always use pnpm for every JavaScript project", "u") == "already stored"
+    assert svc.capture("My project Atlas deploys to Fly.io in the fra region", "u") == "queue full"
+    cfg.write = False
+    assert svc.capture("My project Atlas runs on Postgres 16 in development", "u") == "capture is turned off"

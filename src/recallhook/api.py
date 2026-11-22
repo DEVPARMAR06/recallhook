@@ -7,7 +7,7 @@ from collections import OrderedDict
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from .inject import clean_prompt, format_block, is_automated, is_question, looks_durable, recall_query
+from .inject import capture_skip_reason, clean_prompt, format_block, is_automated, recall_query
 from .security import make_guard
 
 
@@ -29,10 +29,16 @@ def build_api_router(cfg, memory) -> APIRouter:
         """One round trip for the hook: recall relevant memories, then queue capture."""
         guard(request, mutating=True)
         user = body.user or cfg.user_id
+
+        def skipped(reason: str) -> None:  # the reason only, never the prompt text
+            memory.events.add("skipped", "hook", detail=reason)
+
         if is_automated(body.text):  # app/harness messages, not the user
+            skipped("automated message")
             return {"block": "", "hits": 0}
         text = clean_prompt(body.text)
         if len(text) < cfg.min_chars or text.startswith("/"):
+            skipped("too short or a command")
             return {"block": "", "hits": 0}
         items = await memory.recall(recall_query(text), user, source="hook") if cfg.inject else []
         items = items or []
@@ -43,8 +49,9 @@ def build_api_router(cfg, memory) -> APIRouter:
             seen.popitem(last=False)
         fresh = [i for i in items if i["id"] not in known]
         known.update(i["id"] for i in fresh)
-        if not is_question(text) and looks_durable(text):
-            memory.capture(text, user)
+        reason = capture_skip_reason(text) or memory.capture(text, user)  # None = queued for extraction
+        if reason:
+            skipped(reason)
         return {"block": format_block([i["memory"] for i in fresh]) if fresh else "", "hits": len(fresh)}
 
     @r.get("/activity")
@@ -67,6 +74,7 @@ def build_api_router(cfg, memory) -> APIRouter:
             t["memories"] = None
         t["capture_queue"] = memory._q.qsize()
         t["failures"] = memory.stats.get("search_failures", 0)
+        t["skipped"] = memory.events.skipped()
         t["problems"] = await asyncio.to_thread(getattr(memory, "problems", lambda: []))
         return t
 

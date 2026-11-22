@@ -27,13 +27,16 @@ h1{font-size:15px;letter-spacing:.12em;margin:0}h2{font-size:12px;letter-spacing
 td,th{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mut);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
 .badge{font-size:11px;border-radius:5px;padding:1px 7px;background:#2a3142;color:var(--fg)}.b-recall{background:rgba(107,155,255,.2);color:var(--acc2)}.b-stored{background:rgba(76,217,138,.18);color:var(--ok)}.b-recall_failed{background:rgba(255,123,107,.2);color:var(--bad)}
 input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:min(440px,100%)}
-button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:5px 10px;cursor:pointer}button:hover{border-color:var(--acc)}.del{color:var(--bad)}.banner{border:1px solid var(--bad);background:rgba(255,123,107,.12);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px}.banner b{color:var(--bad)}
+button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:5px 10px;cursor:pointer}button:hover{border-color:var(--acc)}.chip{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2px 12px;margin:0 8px 6px 0;font-size:13px;color:var(--mut)}.chip b{color:var(--fg)}
+.del{color:var(--bad)}.banner{border:1px solid var(--bad);background:rgba(255,123,107,.12);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px}.banner b{color:var(--bad)}
 a{color:var(--acc2)}svg text{fill:var(--mut);font-size:10px}.legend span{margin-right:14px;font-size:12px;color:var(--mut)}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
 </style>
 <header><h1>RECALLHOOK</h1><span class=pill id=health><i></i><span>checking</span></span><span class=mut id=sub></span><span class=mut style=margin-left:auto id=upd></span></header>
 <div id=banner></div>
 <div class=grid id=cards></div>
 <div class=panel><h2>Activity, last 14 days</h2><div class=legend><span><i style=background:var(--acc2)></i>recalls</span><span><i style=background:var(--ok)></i>memories created</span></div><div id=chart></div></div>
+<div class=panel><h2>Why some prompts aren't stored <span class=mut>(last 30 days)</span></h2><div id=skipchips></div>
+<p class=mut style=margin:6px 0 0>recallhook only stores statements of lasting facts, like "I always...", "my project X uses...", "Atlas deploys to...". Questions and task requests ("fix this bug") are recalled for but never stored. Start a prompt with <b>"Remember that ..."</b> to store it for sure.</p></div>
 <div class=panel><h2>Live activity</h2><table><thead><tr><th>Time<th>Event<th>Source<th>Hits<th>ms<th>~Tokens<th>Detail</tr></thead><tbody id=feed></tbody></table></div>
 <div class=panel><h2>Memories <span class=mut id=count></span></h2>
 <p><input id=q placeholder="Search memories (shows relevance score)"> <button id=clr>clear</button></p>
@@ -56,6 +59,8 @@ async function refresh(){try{
  $('#health').className='pill';$('#health span').textContent='Healthy';$('#sub').textContent=`${h.llm} · ${h.embedder}`;$('#upd').textContent='Updated '+new Date().toLocaleTimeString();
  $('#cards').innerHTML=card('Memories',s.memories??'?','stored facts')+card('Recalls',s.recalls,s.recalls_today+' today')+card('Hit rate',s.hit_rate+'%','recalls that found something')+card('Recall latency',s.avg_ms+' ms','average')+card('Tokens injected','~'+s.tokens_injected.toLocaleString(),'estimated, all time')+card('Created',s.memories_created,'memories extracted')+card('Queue',s.capture_queue,'captures waiting')+card('Failures',s.failures,'recall timeouts/errors');
  $('#banner').innerHTML=(s.problems||[]).map(p=>`<div class=banner><b>Needs attention:</b> ${esc(p)}</div>`).join('');
+ const sk=Object.entries(s.skipped||{});
+ $('#skipchips').innerHTML=sk.length?sk.map(([r,n])=>`<span class=chip><b>${n}</b> ${esc(r)}</span>`).join(''):'<span class=mut>Nothing skipped yet.</span>';
  chart(se);
  $('#feed').innerHTML=a.map(e=>`<tr><td class=mut>${hhmm(e.ts)}<td><span class="badge b-${esc(e.kind)}">${esc(e.kind.replace('_',' '))}</span><td class=mut>${esc(e.source)}<td>${e.hits}<td>${e.ms}<td>${e.tokens||''}<td class=mut>${esc(e.detail)}</tr>`).join('')||'<tr><td colspan=7 class=mut>no activity yet</td></tr>';
  try{const x=await j(A+'/headroom');$('#hr').innerHTML=x.ok?`Headroom proxy is running (its own estimates: ${Number(x.tokens_removed).toLocaleString()} tokens removed, ${x.requests} requests) · <a href="${x.dashboard}" target=_blank>Headroom dashboard</a>`:'Headroom proxy is not running (optional).'}catch(e){}

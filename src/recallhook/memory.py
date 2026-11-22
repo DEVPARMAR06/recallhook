@@ -170,13 +170,17 @@ class MemoryService:
         return [{"id": r["id"], "memory": r["memory"], "score": round(r.get("score", 0), 3)}
                 for r in items if r.get("memory")]
 
-    def capture(self, text: str, user_id: str) -> bool:
-        """Queue text for extraction once (de-duplicated, ignores trivial text)."""
+    def capture(self, text: str, user_id: str) -> str | None:
+        """Queue text for extraction once. Returns None when queued, otherwise the reason it was not."""
+        if not self.cfg.write:
+            return "capture is turned off"
+        if len(text) < self.cfg.min_chars:
+            return "too short or a command"
         key = text_key(text)
-        if len(text) < self.cfg.min_chars or key in self._captured:
-            return False
+        if key in self._captured:
+            return "already stored"
         self._captured.add(key)
-        return self.submit(text, user_id)
+        return None if self.submit(text, user_id) else "queue full"
 
     # -- write -------------------------------------------------------------
     def submit(self, text: str, user_id: str) -> bool:

@@ -34,6 +34,16 @@ def looks_durable(text: str) -> bool:
     return bool(_DURABLE.search(text) or _NAMED_SUBJECT.search(text))
 
 
+def capture_skip_reason(text: str) -> str | None:
+    """Why this prompt is not worth storing, or None if it is a lasting statement.
+    The wording is shown in the dashboard, so keep it plain."""
+    if is_question(text):
+        return "question"
+    if not looks_durable(text):
+        return "task or request (no lasting fact)"
+    return None
+
+
 def is_automated(text: str) -> bool:
     return bool(_AUTOMATED.search(text))
 
