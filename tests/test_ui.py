@@ -17,6 +17,7 @@ class Mem:
 
     def start(self): ...
     def warm(self): ...
+    def problems(self): return ["Model 'x' is not downloaded. Run: ollama pull x"]
     def list_all(self, user): return [{"id": "m1", "memory": "User uses pnpm", "created_at": None, "updated_at": None}]
     def search_scored(self, q, user): return self.items
     def delete(self, mid): self.deleted.append(mid)
@@ -79,6 +80,7 @@ def test_dashboard_data_endpoints(tmp_path):
         c.post("/_recallhook/api/prompt", json={"text": "what do I use for JS?", "session": "a"}, headers=H)
         s = c.get("/_recallhook/api/summary").json()
         assert s["recalls"] == 1 and s["hit_rate"] == 100 and s["memories"] == 1
+        assert s["problems"] == ["Model 'x' is not downloaded. Run: ollama pull x"]
         assert c.get("/_recallhook/api/activity").json()[0]["kind"] == "recall"
         assert c.get("/_recallhook/api/series").json()[0]["recall"] == 1
 

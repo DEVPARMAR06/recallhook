@@ -67,6 +67,7 @@ def build_api_router(cfg, memory) -> APIRouter:
             t["memories"] = None
         t["capture_queue"] = memory._q.qsize()
         t["failures"] = memory.stats.get("search_failures", 0)
+        t["problems"] = await asyncio.to_thread(getattr(memory, "problems", lambda: []))
         return t
 
     return r

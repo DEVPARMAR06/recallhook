@@ -1,6 +1,6 @@
 # recallhook
 
-[![tests](https://github.com/DEVPARMAR06/recallhook/actions/workflows/test.yml/badge.svg)](https://github.com/DEVPARMAR06/recallhook/actions/workflows/test.yml) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+[![tests](https://github.com/DEVPARMAR06/recallhook/actions/workflows/test.yml/badge.svg)](https://github.com/DEVPARMAR06/recallhook/actions/workflows/test.yml) [![PyPI](https://img.shields.io/pypi/v/recallhook)](https://pypi.org/project/recallhook/) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 **Private, local long-term memory for Claude Code.** Tell Claude something once, like *"I use pnpm"* or *"Atlas deploys to Fly.io"*, and every future session already knows it, in the **Claude desktop app, the VS Code extension and the terminal**.
 
@@ -44,22 +44,72 @@ you type a prompt ──▶ Claude Code UserPromptSubmit hook ──▶ local ga
 
 ## Quickstart
 
-Requirements: Python 3.10+, [Ollama](https://ollama.com), Claude Code. An 8B model wants roughly 6 GB of VRAM/RAM.
+You need: Python 3.10+, [Ollama](https://ollama.com) installed and running, and Claude Code. The default models are about 5.5 GB to download and an 8B model wants roughly 6 GB of VRAM/RAM (a lighter option is below).
 
 ```bash
-ollama pull nomic-embed-text
-ollama pull qwen3:8b                 # extraction model (any chat model works)
-
-pip install recallhook
-recallhook install                   # Windows: start at logon + add the hook
-recallhook status
-recallhook ui                        # open the dashboard
+pipx install recallhook      # or: pip install recallhook   (pipx keeps its dependencies isolated)
+recallhook init              # checks Ollama, downloads the models (asks first), installs autostart + hook
+recallhook status            # tells you what works and how to fix what doesn't
+recallhook ui                # open the dashboard
 ```
 
-macOS/Linux: run `recallhook serve` yourself (systemd/launchd unit welcome as a PR) and `recallhook hooks on`.
-Hooks load when a session starts, so open a new session after installing. Undo everything with `recallhook uninstall`.
+`init` is safe to re-run. Hooks load when a session starts, so **open a new Claude session** afterwards. Try it: say *"My project Atlas runs its tests with `pnpm test:unit` and its dev server listens on port 4310."* In a **new** session ask *"how do I run the Atlas tests?"*
 
-Try it: say *"My project Atlas runs its tests with `pnpm test:unit` and its dev server listens on port 4310."* In a **new** session ask *"how do I run the Atlas tests?"*
+Autostart is Windows-only for now (a hidden Task Scheduler job). On macOS/Linux run `recallhook serve` yourself and `recallhook hooks on` (a systemd/launchd unit would make a great PR).
+
+## Choosing and changing models
+
+| Model | Size | Notes |
+|---|---|---|
+| `qwen3:8b` (default) | 5.2 GB | best extraction in our checks; ~7 s per message once warm |
+| `llama3.2:3b` | 2.0 GB | faster (7 s vs 15 s on our 3-message check) and lighter, but caught 4 of 5 test facts vs 5 of 5, so expect the occasional missed fact |
+| `nomic-embed-text` (embeddings, default) | 0.3 GB | what the 0.5 relevance cutoff is tuned for |
+
+Only these were tested. Other chat models should work, since any Ollama model can extract facts, but compare before you trust one: `python scripts/bench_models.py qwen3:8b <your-model>`.
+
+No code changes needed. Settings live in a config file, `~/.recallhook/config.json`, and can be changed from the command line:
+
+```bash
+recallhook config show                       # every setting, and where its value comes from
+recallhook config set llm_model llama3.2:3b  # saves it and restarts the service
+recallhook init --llm-model llama3.2:3b      # same, and downloads the model if missing
+recallhook config unset llm_model            # back to the default
+```
+
+Precedence: command-line flag > `RECALLHOOK_*` environment variable > config file > default. Settable keys: `llm_model`, `embed_model`, `embed_dims`, `ollama_url`, `port`, `num_ctx`, `keep_alive`, `embed_on_cpu`, `user_id`, `top_k`, `min_score`, `search_timeout`, `inject`, `write`.
+
+**Changing the embedding model is different.** Vectors from different embedding models can't be mixed, so recallhook refuses a silent switch (and the dashboard shows why). Do it in three steps; your memories are kept and the old vectors are backed up:
+
+```bash
+recallhook config set embed_model mxbai-embed-large
+recallhook config set embed_dims 1024        # the vector size of that model
+recallhook reindex
+```
+
+Similarity scores differ between embedding models, so you may need to retune `recallhook config set min_score <0-1>`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `recallhook init` | guided first run: checks Ollama, downloads models, installs autostart + hook |
+| `recallhook status` | what works / what doesn't, each problem with its fix |
+| `recallhook ui` | open the dashboard |
+| `recallhook config show / set / unset` | view and change settings |
+| `recallhook reindex` | rebuild the store after changing the embedding model |
+| `recallhook restart` | restart the background service |
+| `recallhook install` | (re)install autostart + hook; **also the upgrade step** |
+| `recallhook uninstall` | remove autostart + hook, stop the processes |
+| `recallhook hooks on / off` | add or remove only the Claude Code hook |
+| `recallhook serve` | run the gateway in the foreground (macOS/Linux, debugging) |
+
+## Upgrade, uninstall, troubleshooting
+
+- **Upgrade:** `pipx upgrade recallhook` (or `pip install -U recallhook`), then `recallhook install`. The running service keeps its old code until restarted, and `install` restarts it.
+- **Uninstall:** `recallhook uninstall` **first**, then `pipx uninstall recallhook` (or `pip uninstall recallhook`). Doing it the other way round leaves the autostart task and hook behind. Your memories stay in `~/.recallhook`; delete that folder to erase them.
+- **"It doesn't remember anything":** run `recallhook status`. It checks, in plain words: Ollama running? Models downloaded? Embedding model matches the store? Hook installed, and does the Python it points to still exist? Gateway up? The dashboard shows the same problems in a red banner.
+- **Logs:** `~/.recallhook/logs/gateway.log`.
+- A moved or deleted Python environment breaks the hook silently (it is fail-open on purpose). `recallhook install` fixes the path.
 
 ## Does it save anything? (we measured)
 
@@ -81,13 +131,13 @@ How to read this honestly:
 
 ### What we tried that did *not* pay off
 
-We first built this as a proxy in front of the [Headroom](https://github.com/chopratejas/headroom) compression proxy. Billed cost for a 5-prompt tool-heavy session: direct $0.060, Headroom default **+14%**, Headroom lossless **+16%**, and routing through even a bare pass-through gateway **+27%** (cause not found). Rewriting requests breaks prompt-cache reuse, so short sessions pay more than they save. We dropped the proxy for the hook. (Headroom's own dashboard "savings" are estimates; billed usage is what counts.) The optional proxy mode is still in the code (`serve --spawn-headroom`) but off by default and not recommended.
+We first built this as a proxy in front of the [Headroom](https://github.com/chopratejas/headroom) compression proxy. Billed cost for a 5-prompt tool-heavy session: direct $0.060, Headroom default **+14%**, Headroom lossless **+16%**, and routing through even a bare pass-through gateway **+27%** (cause not found). Rewriting requests breaks prompt-cache reuse, so short sessions pay more than they save. We dropped the proxy for the hook. (Headroom's own dashboard "savings" are estimates; billed usage is what counts.) The optional proxy mode is still in the code (`serve --spawn-headroom`, `install --with-headroom`) but off by default and not recommended.
 
 ## Dashboard
 
 `recallhook ui` or `http://127.0.0.1:8788/_recallhook/ui`
 
-Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day chart, a live activity feed showing which memories were recalled or stored, and search / delete for every memory. Localhost-only; writes need a custom header and a foreign `Host` header is rejected, so web pages can't reach it. Prompt text is never logged, only counts, timings and the memory snippets involved.
+Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day chart, a live activity feed showing which memories were recalled or stored, a **"needs attention" banner** when something is misconfigured, and search / delete for every memory. Localhost-only; writes need a custom header and a foreign `Host` header is rejected, so web pages can't reach it. Prompt text is never logged, only counts, timings and the memory snippets involved.
 
 ## Lessons baked in
 
@@ -105,13 +155,10 @@ Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day cha
 ## Limits
 
 - Built and used on Windows 11. The unit tests also pass on Linux in CI, but the full Ollama + hook flow is untested off Windows. Autostart is Windows Task Scheduler only for now.
+- **English only.** The "is this a lasting statement?" filter, the question detector and the fact-extraction instructions are English heuristics. Other languages will mostly be skipped.
 - One shared memory per user id (no per-project scoping yet).
 - Small local models sometimes miss a fact on the first try (the writer retries once); extraction quality follows your model.
-- The capture filter is heuristic: it favours "I always / my project / X uses / remember" phrasing. Durable facts phrased as bare commands may be skipped.
-
-## Configuration
-
-`RECALLHOOK_*` env vars: `PORT`, `OLLAMA_URL`, `LLM_MODEL`, `EMBED_MODEL`, `NUM_CTX`, `KEEP_ALIVE`, `EMBED_ON_CPU`, `STORE`, `USER_ID`, `TOP_K`, `MIN_SCORE`, `SEARCH_TIMEOUT`. Compare extraction models: `python scripts/bench_models.py qwen3:8b llama3.2:3b`.
+- The capture filter favours "I always / my project / X uses / remember" phrasing. Durable facts phrased as bare commands may be skipped.
 
 ## Develop
 
@@ -119,4 +166,4 @@ Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day cha
 pip install -e ".[dev]" && pytest
 ```
 
-Issues and PRs welcome, especially Linux/macOS autostart, per-project scoping and more benchmarks. MIT licensed.
+Issues and PRs welcome, especially Linux/macOS autostart, per-project scoping, non-English support and more benchmarks. MIT licensed.

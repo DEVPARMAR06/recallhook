@@ -132,3 +132,45 @@ def kill_ports(*ports: int) -> list[int]:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
             killed.append(pid)
     return killed
+
+
+# -- service control -----------------------------------------------------------
+def restart_service(port: int) -> str:
+    """Stop whatever serves the gateway port so the (re)installed code loads, then start the task."""
+    killed = kill_ports(port)
+    if sys.platform != "win32":
+        return f"stopped {len(killed)} process(es); start the gateway again with `recallhook serve`"
+    r = _ps(f"Start-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop")
+    return "service restarted" if r.returncode == 0 else (
+        "service stopped; no autostart task found (run `recallhook install`, or `recallhook serve`)")
+
+
+def pause_service(port: int) -> None:
+    """Stop the gateway AND stop the heartbeat from restarting it (needed while the store is rebuilt)."""
+    if sys.platform == "win32":
+        _ps(f"Disable-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue | Out-Null; "
+            f"Stop-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue")
+    kill_ports(port)
+
+
+def resume_service(port: int) -> None:
+    if sys.platform == "win32":
+        _ps(f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue | Out-Null; "
+            f"Start-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue")
+
+
+def hook_state(settings: Path = SETTINGS) -> tuple[str, str]:
+    """('ok' | 'missing' | 'broken', detail) for our UserPromptSubmit hook."""
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "missing", f"no readable {settings}"
+    for entry in data.get("hooks", {}).get("UserPromptSubmit", []):
+        for h in entry.get("hooks", []):
+            cmd = h.get("command", "")
+            if HOOK_MARK in cmd:
+                exe = cmd.split('"')[1] if cmd.startswith('"') else cmd.split()[0]
+                if Path(exe).exists():
+                    return "ok", cmd
+                return "broken", f"the Python it points to no longer exists: {exe} (run `recallhook install` again)"
+    return "missing", "run `recallhook install` (or `recallhook hooks on`)"

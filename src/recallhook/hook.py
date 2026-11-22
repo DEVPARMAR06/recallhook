@@ -19,7 +19,10 @@ def run(port: int | None = None) -> int:
         return 0
     if data.get("hook_event_name") != "UserPromptSubmit":
         return 0
-    port = port or int(os.environ.get("RECALLHOOK_PORT", "8788"))
+    if not port:
+        from .config import effective_port  # env, then ~/.recallhook/config.json, then 8788
+
+        port = effective_port()
     body = json.dumps({"text": data.get("prompt", ""), "session": data.get("session_id")}).encode("utf-8")
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/_recallhook/api/prompt", data=body,

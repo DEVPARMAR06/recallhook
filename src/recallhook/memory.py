@@ -12,16 +12,19 @@ from typing import Any, Callable
 from .config import Config
 from .events import EventLog
 from .inject import text_key
+from . import diagnostics, store
 
 log = logging.getLogger("recallhook")
 
 
-def build_mem0(cfg: Config) -> Any:
+def build_mem0(cfg: Config, check: bool = True) -> Any:
+    if check:
+        store.check(cfg)  # refuses an embedding-model change that would corrupt recall
     os.environ.setdefault("MEM0_TELEMETRY", "False")
     from mem0 import Memory  # imported late: slow, and optional for tests
 
-    store = os.path.expanduser(cfg.store_path)
-    os.makedirs(store, exist_ok=True)
+    store_dir = os.path.expanduser(cfg.store_path)
+    os.makedirs(store_dir, exist_ok=True)
     m = Memory.from_config({
         "llm": {"provider": "ollama", "config": {
             "model": cfg.llm_model, "temperature": 0, "max_tokens": 800,
@@ -30,9 +33,9 @@ def build_mem0(cfg: Config) -> Any:
             "model": cfg.embed_model, "embedding_dims": cfg.embed_dims,
             "ollama_base_url": cfg.ollama_url}},
         "vector_store": {"provider": "qdrant", "config": {
-            "collection_name": "recallhook", "path": os.path.join(store, "qdrant"),
+            "collection_name": "recallhook", "path": os.path.join(store_dir, "qdrant"),
             "embedding_model_dims": cfg.embed_dims, "on_disk": True}},
-        "history_db_path": os.path.join(store, "history.db"),
+        "history_db_path": os.path.join(store_dir, "history.db"),
     })
     tune_ollama(m, cfg)
     return m
@@ -90,12 +93,32 @@ class MemoryService:
         self.stats = {"searches": 0, "search_failures": 0, "writes": 0, "write_failures": 0, "dropped": 0}
         self.events = EventLog(cfg.home / "events.db")
         self._captured: set[str] = set()
+        self.init_error: str | None = None
+        self._diag: tuple[float, list[str]] = (0.0, [])
 
     def client(self) -> Any:
         with self._init_lock:
             if self._client is None:
-                self._client = self._factory(self.cfg)
+                try:
+                    self._client = self._factory(self.cfg)
+                    self.init_error = None
+                except Exception as e:  # noqa: BLE001 - remember why, for the dashboard/status
+                    self.init_error = str(e) if isinstance(e, store.StoreMismatch) else (
+                        f"Could not start the memory engine ({type(e).__name__}). "
+                        f"Run `recallhook status` for details.")
+                    raise
             return self._client
+
+    def problems(self) -> list[str]:
+        """Plain-language reasons memory is not working right now (cached for 30 s)."""
+        at, cached = self._diag
+        if time.time() - at > 30:
+            cached = diagnostics.check(self.cfg)
+            self._diag = (time.time(), cached)
+        out = list(cached)
+        if self.init_error and self.init_error not in out:
+            out.append(self.init_error)
+        return out
 
     def warm(self) -> None:
         """Build the client and load the embedding model so the first real

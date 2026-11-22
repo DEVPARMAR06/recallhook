@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "recallhook"
-version = "0.1.0"
+version = "0.1.1"
 description = "Private, local long-term memory for Claude Code (desktop app, VS Code, terminal): a hook that recalls and stores facts with mem0 + Ollama."
 keywords = ["claude-code", "claude", "memory", "mem0", "ollama", "hooks", "local-first", "llm"]
 classifiers = [
@@ -42,4 +42,4 @@ packages = ["src/recallhook"]
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "bench", "scripts", "README.md", "LICENSE", "pyproject.toml"]
+include = ["src", "tests", "bench", "scripts", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
