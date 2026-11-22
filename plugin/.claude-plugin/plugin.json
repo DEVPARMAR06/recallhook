@@ -1,0 +1,12 @@
+{
+  "name": "recallhook",
+  "description": "Private, local long-term memory for Claude Code. Recalls relevant facts from mem0 + Ollama on every prompt. Needs the recallhook gateway: pipx install recallhook && recallhook init --no-hook",
+  "version": "0.1.2",
+  "author": {
+    "name": "DEVPARMAR06"
+  },
+  "homepage": "https://github.com/DEVPARMAR06/recallhook",
+  "repository": "https://github.com/DEVPARMAR06/recallhook",
+  "license": "MIT",
+  "keywords": ["memory", "mem0", "ollama", "hooks", "local-first"]
+}

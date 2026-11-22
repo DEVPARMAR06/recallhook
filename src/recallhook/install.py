@@ -160,17 +160,30 @@ def resume_service(port: int) -> None:
 
 
 def hook_state(settings: Path = SETTINGS) -> tuple[str, str]:
-    """('ok' | 'missing' | 'broken', detail) for our UserPromptSubmit hook."""
+    """('ok' | 'duplicate' | 'missing' | 'broken', detail) for our UserPromptSubmit hook.
+
+    The hook can come from ~/.claude/settings.json (`recallhook install`) or from the
+    recallhook Claude Code plugin; both at once is harmless (memories are injected once)
+    but wasteful, so it is reported as 'duplicate'."""
     try:
         data = json.loads(settings.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return "missing", f"no readable {settings}"
+    plugin = any(k.startswith("recallhook@") and v for k, v in (data.get("enabledPlugins") or {}).items())
+    state, detail = "missing", "run `recallhook install` (or install the recallhook plugin)"
     for entry in data.get("hooks", {}).get("UserPromptSubmit", []):
         for h in entry.get("hooks", []):
             cmd = h.get("command", "")
             if HOOK_MARK in cmd:
                 exe = cmd.split('"')[1] if cmd.startswith('"') else cmd.split()[0]
                 if Path(exe).exists():
-                    return "ok", cmd
-                return "broken", f"the Python it points to no longer exists: {exe} (run `recallhook install` again)"
-    return "missing", "run `recallhook install` (or `recallhook hooks on`)"
+                    state, detail = "ok", cmd
+                else:
+                    state, detail = ("broken", f"the Python it points to no longer exists: {exe} "
+                                               f"(run `recallhook install` again)")
+    if plugin and state == "ok":
+        return "duplicate", ("both the settings hook and the recallhook plugin are active; keep one: "
+                             "`recallhook hooks off` keeps the plugin")
+    if plugin and state == "missing":
+        return "ok", "provided by the recallhook plugin"
+    return state, detail

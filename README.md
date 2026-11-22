@@ -57,6 +57,17 @@ recallhook ui                # open the dashboard
 
 Autostart is Windows-only for now (a hidden Task Scheduler job). On macOS/Linux run `recallhook serve` yourself and `recallhook hooks on` (a systemd/launchd unit would make a great PR).
 
+### Prefer a Claude Code plugin?
+
+The hook is also available as a plugin, so you can add and remove it from inside Claude Code:
+
+```text
+/plugin marketplace add DEVPARMAR06/recallhook
+/plugin install recallhook@recallhook
+```
+
+The plugin registers the hook and adds two commands: `/recallhook:status` and `/recallhook:ui`. It still needs the gateway and models from the quickstart, so install the package and run **`recallhook init --no-hook`** (the plugin supplies the hook, so the settings hook is skipped). If both end up active, `recallhook status` warns and `recallhook hooks off` keeps the plugin. If `recallhook` isn't installed, the plugin's hook does nothing and your prompts are unaffected.
+
 ## Choosing and changing models
 
 | Model | Size | Notes |

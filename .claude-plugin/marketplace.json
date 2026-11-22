@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "recallhook",
+  "description": "recallhook: private, local long-term memory for Claude Code",
+  "owner": {
+    "name": "DEVPARMAR06"
+  },
+  "plugins": [
+    {
+      "name": "recallhook",
+      "description": "Private, local long-term memory for Claude Code. Recalls relevant facts from mem0 + Ollama on every prompt. Needs the recallhook gateway: pipx install recallhook && recallhook init --no-hook",
+      "version": "0.1.2",
+      "author": {
+        "name": "DEVPARMAR06"
+      },
+      "source": "./plugin",
+      "category": "productivity",
+      "homepage": "https://github.com/DEVPARMAR06/recallhook"
+    }
+  ]
+}

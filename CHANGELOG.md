@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+- Claude Code plugin + marketplace (`/plugin marketplace add DEVPARMAR06/recallhook`): registers the hook and adds `/recallhook:status` and `/recallhook:ui`.
+- `init --no-hook` / `install --no-hook` for plugin users; `status` recognises the plugin and warns if the hook is registered twice.
+
 ## 0.1.1
 - `recallhook init`: guided first run. Checks Ollama, downloads missing models (asks first), installs autostart + hook.
 - Config file `~/.recallhook/config.json` and `recallhook config show/set/unset`; the autostarted service and the hook now honour it (including the port).

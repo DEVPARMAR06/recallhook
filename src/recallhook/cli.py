@@ -46,11 +46,15 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--embed-dims", type=int, help="vector size of the embedding model")
     n.add_argument("--yes", "-y", action="store_true", help="download missing models without asking")
     n.add_argument("--no-service", action="store_true", help="only check/download; do not install autostart")
+    n.add_argument("--no-hook", action="store_true",
+                   help="install the service but not the settings hook (use with the Claude Code plugin)")
 
     i = sub.add_parser("install", help="start at logon (Windows) + add the Claude Code memory hook; also upgrades")
     i.add_argument("--route-claude", action="store_true",
                    help="also route Claude Code traffic through the gateway (not recommended: no measured saving)")
     i.add_argument("--with-headroom", action="store_true", help="also run the Headroom proxy (opt-in)")
+    i.add_argument("--no-hook", action="store_true",
+                   help="install the service but not the settings hook (use with the Claude Code plugin)")
 
     c = sub.add_parser("config", help="show or change settings (models, port, thresholds)")
     csub = c.add_subparsers(dest="action", required=True)
@@ -118,7 +122,12 @@ def status(cfg: Config) -> int:
     else:
         line(True, "Ollama is running and both models are downloaded; embedding model matches the store")
     state, detail = ins.hook_state()
-    line(state == "ok", "Claude Code hook installed" if state == "ok" else f"Claude Code hook {state}: {detail}")
+    if state == "duplicate":
+        line(None, f"Claude Code hook: {detail}")
+    elif state == "ok":
+        line(True, "Claude Code hook: " + ("provided by the recallhook plugin" if "plugin" in detail else "installed"))
+    else:
+        line(False, f"Claude Code hook {state}: {detail}")
     if _gateway_up(cfg):
         s = _get(f"http://127.0.0.1:{cfg.port}/_recallhook/api/summary")
         line(True, f"gateway running: {s.get('memories')} memories, {s.get('recalls')} recalls, "
@@ -173,7 +182,7 @@ def init(cfg: Config, a) -> int:
     print("3/3 Installing autostart + Claude Code hook...")
     ins.kill_ports(cfg.port)
     print("   ", ins.install_task("serve"))
-    print("   ", ins.install_hook(True))
+    print("   ", "hook skipped (--no-hook): the recallhook plugin provides it" if a.no_hook else ins.install_hook(True))
     if sys.platform == "win32":
         for _ in range(60):
             if _gateway_up(cfg):
@@ -314,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "install":
         ins.kill_ports(cfg.port)  # stop an old gateway so upgraded code loads
         print(ins.install_task("serve --spawn-headroom" if a.with_headroom else "serve"))
-        print(ins.install_hook(True))
+        print("hook skipped (--no-hook): the recallhook plugin provides it" if a.no_hook else ins.install_hook(True))
         if a.route_claude:
             print(ins.route_claude(True, cfg.port))
         for problem in diagnostics.check(cfg):

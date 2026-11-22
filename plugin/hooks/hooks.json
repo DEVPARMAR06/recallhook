@@ -1,0 +1,16 @@
+{
+  "description": "recallhook: add relevant long-term memories to each prompt (fail-open, silent if recallhook is not installed)",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v recallhook >/dev/null 2>&1 && exec recallhook hook; exit 0",
+            "timeout": 8
+          }
+        ]
+      }
+    ]
+  }
+}

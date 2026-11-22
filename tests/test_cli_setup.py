@@ -134,3 +134,38 @@ def test_memory_service_surfaces_why_it_cannot_start(monkeypatch):
     with pytest.raises(store.StoreMismatch):
         svc.client()
     assert svc.problems() == ["embedder changed; run recallhook reindex"]
+
+
+# -- plugin awareness ------------------------------------------------------------------
+def test_hook_state_recognises_the_plugin_and_flags_duplicates(tmp_path):
+    import json
+
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps({"enabledPlugins": {"recallhook@recallhook": True}}))
+    assert ins.hook_state(f) == ("ok", "provided by the recallhook plugin")  # plugin only
+    ins.install_hook(True, f)  # settings hook as well
+    state, detail = ins.hook_state(f)
+    assert state == "duplicate" and "recallhook hooks off" in detail
+    ins.install_hook(False, f)
+    f.write_text(json.dumps({"enabledPlugins": {"recallhook@recallhook": False}}))  # disabled plugin counts for nothing
+    assert ins.hook_state(f)[0] == "missing"
+
+
+def test_status_treats_duplicate_hook_as_a_warning_not_a_failure(monkeypatch, capsys):
+    monkeypatch.setattr(diagnostics, "check", lambda cfg: [])
+    monkeypatch.setattr(ins, "hook_state", lambda *a: ("duplicate", "both active"))
+    monkeypatch.setattr(cli, "_gateway_up", lambda cfg: True)
+    monkeypatch.setattr(cli, "_get", lambda url, timeout=5: {"memories": 1, "recalls": 1, "hit_rate": 1})
+    assert run("status") == 0
+    assert "both active" in capsys.readouterr().out
+
+
+def test_install_no_hook_leaves_the_hook_to_the_plugin(monkeypatch, capsys):
+    called = []
+    monkeypatch.setattr(ins, "kill_ports", lambda *p: [])
+    monkeypatch.setattr(ins, "install_task", lambda args="serve": "task ok")
+    monkeypatch.setattr(ins, "install_hook", lambda on, settings=None: called.append(on) or "hook ok")
+    monkeypatch.setattr(diagnostics, "check", lambda cfg: [])
+    assert run("install", "--no-hook") == 0
+    assert called == [] and "plugin provides it" in capsys.readouterr().out
+    assert run("install") == 0 and called == [True]
