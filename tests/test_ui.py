@@ -12,7 +12,7 @@ H = {"x-hm-client": "test"}
 
 class Mem:
     def __init__(self, tmp_path):
-        self.stats, self.deleted, self.captured = {}, [], []
+        self.stats, self.deleted, self.captured, self.meta = {}, [], [], []
         self.events = EventLog(tmp_path / "events.db")
         self._q = type("Q", (), {"qsize": staticmethod(lambda: 0)})()
         self.items = [{"id": "m1", "memory": "User uses pnpm", "score": 0.8}]
@@ -28,13 +28,14 @@ class Mem:
         self.events.add("recall", source, hits=len(self.items), ms=5, tokens=10, detail="x")
         return self.items
 
-    def capture(self, text, user):
+    def capture(self, text, user, source="prompt", cwd=None):
         self.captured.append((text, user))
+        self.meta.append((source, cwd))
         return None  # None = queued for extraction
 
 
-def client(mem):
-    cfg = Config(port=8788, fallback="", upstream="http://127.0.0.1:9", min_chars=5)
+def client(mem, **cfg_kw):
+    cfg = Config(port=8788, fallback="", upstream="http://127.0.0.1:9", min_chars=5, **cfg_kw)
     return TestClient(create_app(cfg, mem, transport=httpx.MockTransport(lambda r: httpx.Response(200))),
                       base_url="http://127.0.0.1:8788")
 
@@ -59,7 +60,7 @@ def test_foreign_host_is_rejected(tmp_path):
 
 def test_prompt_endpoint_recalls_dedups_per_session_and_captures(tmp_path):
     mem = Mem(tmp_path)
-    with client(mem) as c:
+    with client(mem, capture_mode="strict") as c:
         body = {"text": "which package manager do I use?", "session": "s1"}
         first = c.post("/_recallhook/api/prompt", json=body, headers=H).json()
         assert first["hits"] == 1 and "User uses pnpm" in first["block"]
@@ -139,7 +140,7 @@ def test_recall_query_keeps_both_ends_of_long_prompts():
 def test_skipped_prompts_log_only_the_reason_never_the_text(tmp_path):
     mem = Mem(tmp_path)
     secret = "supersecret-project-codename"
-    with client(mem) as c:
+    with client(mem, capture_mode="strict") as c:
         def post(text):
             return c.post("/_recallhook/api/prompt", json={"text": text, "session": "k"}, headers=H)
 
@@ -164,6 +165,127 @@ def test_capture_explains_why_it_declined(tmp_path):
     assert svc.capture("too short", "u") == "too short or a command"
     assert svc.capture("I always use pnpm for every JavaScript project", "u") is None
     assert svc.capture("I always use pnpm for every JavaScript project", "u") == "already stored"
-    assert svc.capture("My project Atlas deploys to Fly.io in the fra region", "u") == "queue full"
+    # a backed-up queue drops the OLDEST work and keeps the newest (the latest reply is the most informative)
+    assert svc.capture("My project Atlas deploys to Fly.io in the fra region", "u") is None
+    assert svc.stats["dropped"] == 1 and svc._q.qsize() == 1
+    assert "Fly.io" in svc._q.get_nowait()[0]
     cfg.write = False
     assert svc.capture("My project Atlas runs on Postgres 16 in development", "u") == "capture is turned off"
+
+
+# -- smart capture (default) and learning from Claude's replies ------------------------------
+def test_smart_mode_sends_tasks_to_extraction_but_skips_short_lookups(tmp_path):
+    mem = Mem(tmp_path)
+    task = "The checkout service is in services/checkout. Please add retries around the charge call."
+    long_q = ("Here is our setup: Postgres 16 on port 5433, Redis on 6391, deployed to Fly.io. " * 3
+              + "Why would the pool time out?")
+    with client(mem) as c:  # smart is the default
+        def post(text):
+            return c.post("/_recallhook/api/prompt", json={"text": text, "session": "k", "cwd": "C:/work/atlas"}, headers=H)
+
+        post("Which port does the dev server use?")          # short lookup: skipped
+        post(task)                                             # task with project knowledge: extracted
+        post(long_q)                                           # long question with context: extracted
+        summary = c.get("/_recallhook/api/summary").json()
+    assert [t for t, _ in mem.captured] == [task, long_q]
+    assert mem.meta == [("prompt", "C:/work/atlas")] * 2       # the project folder travels with it
+    assert summary["skipped"] == {"short question (a lookup)": 1}
+
+
+def test_turn_endpoint_learns_from_claude_replies(tmp_path):
+    mem = Mem(tmp_path)
+    reply = ("I looked through the repo. The backend is a FastAPI app in src/api using SQLAlchemy with "
+             "Postgres 16. Tests run with pytest -q and CI is a GitHub Actions workflow.")
+    with client(mem) as c:
+        def turn(text):
+            return c.post("/_recallhook/api/turn", json={"text": text, "session": "t", "cwd": "C:/work/atlas"}, headers=H).json()
+
+        assert turn(reply) == {"queued": True}
+        assert turn("Done! Fixed it.") == {"queued": False}                       # too short to carry knowledge
+        wrapped = "<recalled_memories>\n- secret memory\n</recalled_memories>\n" + reply + " Extra detail. " * 3
+        assert turn(wrapped) == {"queued": True}
+        assert "secret memory" not in mem.captured[-1][0]                         # our own block is never re-captured
+        assert turn("[SYSTEM NOTIFICATION - NOT USER INPUT] " + reply) == {"queued": False}
+        assert c.post("/_recallhook/api/turn", json={"text": reply}).status_code == 403   # needs the client header
+        skipped = c.get("/_recallhook/api/summary").json()["skipped"]
+    assert mem.meta == [("turn", "C:/work/atlas")] * 2
+    assert skipped == {"assistant reply too short": 1, "automated message": 1}
+
+
+def test_turn_capture_can_be_switched_off(tmp_path):
+    mem = Mem(tmp_path)
+    with client(mem, capture_assistant=False) as c:
+        r = c.post("/_recallhook/api/turn", json={"text": "x" * 400}, headers=H).json()
+        assert r == {"queued": False} and mem.captured == []
+        assert c.get("/_recallhook/api/summary").json()["skipped"] == {"assistant capture is off": 1}
+
+
+# -- "forget" and memory age ---------------------------------------------------------------------------
+def test_forget_deletes_the_matching_memory_and_never_stores_the_request(tmp_path):
+    mem = Mem(tmp_path)
+    with client(mem) as c:
+        r = c.post("/_recallhook/api/prompt", json={"text": "Forget that the team uses pnpm", "session": "f"}, headers=H).json()
+    assert mem.deleted == ["m1"] and "User uses pnpm" in r["block"] and "deleted" in r["block"]
+    assert mem.captured == []                                     # the instruction itself is not a memory
+    assert any(e["kind"] == "forgot" for e in mem.events.recent())
+
+
+def test_forget_with_no_good_match_deletes_nothing(tmp_path):
+    mem = Mem(tmp_path)
+    mem.items = [{"id": "m1", "memory": "User uses pnpm", "score": 0.3}]   # nothing close enough
+    with client(mem) as c:
+        r = c.post("/_recallhook/api/prompt", json={"text": "Forget that we deploy to Mars", "session": "f"}, headers=H).json()
+    assert mem.deleted == [] and "nothing was deleted" in r["block"]
+
+
+def test_stale_memories_are_labelled_with_their_age(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    mem = Mem(tmp_path)
+    old = (datetime.now(timezone.utc) - timedelta(days=21)).isoformat()
+    mem.items = [{"id": "m1", "memory": "Old fact about the build", "score": 0.9, "updated_at": old},
+                 {"id": "m2", "memory": "Fresh fact about the build", "score": 0.9,
+                  "updated_at": datetime.now(timezone.utc).isoformat()}]
+    with client(mem) as c:
+        block = c.post("/_recallhook/api/prompt", json={"text": "tell me about the build setup", "session": "a"},
+                       headers=H).json()["block"]
+    assert "Old fact about the build (noted 3 weeks ago)" in block
+    assert "Fresh fact about the build" in block and "Fresh fact about the build (" not in block
+
+
+# -- the dashboard page itself ---------------------------------------------------------------------------
+def test_dashboard_script_has_no_raw_line_breaks_inside_string_literals():
+    """A stray newline inside a JS string silently kills the whole dashboard, so scan the script."""
+    from recallhook.ui import PAGE
+
+    script = PAGE[PAGE.index("<script>") + 8:PAGE.index("</script>")]
+    script = script.replace('/[&<>"]/g', "RE")   # the page's one regex literal contains a quote character
+    quote, i, line = None, 0, 1
+    while i < len(script):
+        ch = script[i]
+        if ch == chr(92) and quote:     # a backslash escapes the next character
+            i += 2
+            continue
+        if ch == chr(10):
+            assert quote in (None, "`"), f"line break inside a {quote} string near script line {line}"
+            line += 1
+        elif quote is None and ch in "'\"`":
+            quote = ch
+        elif quote == ch:
+            quote = None
+        i += 1
+    assert quote is None, "unterminated string in the dashboard script"
+
+
+def test_restore_puts_an_old_memory_back_and_logs_it(tmp_path):
+    mem = Mem(tmp_path)
+    restored = []
+    mem.restore = lambda text, user: restored.append((text, user))
+    with client(mem) as c:
+        body = {"text": "The dev server for atlas listens on port 4310"}
+        assert c.post("/_recallhook/api/restore", json=body).status_code == 403            # needs the client header
+        assert c.post("/_recallhook/api/restore", json=body, headers=H).json() == {"restored": True}
+        assert c.post("/_recallhook/api/restore", json={"text": "  "}, headers=H).status_code == 400
+        assert c.post("/_recallhook/api/restore", json={"text": "x" * 3000}, headers=H).status_code == 400
+    assert restored == [("The dev server for atlas listens on port 4310", "default")]
+    assert any(e["kind"] == "restored" for e in mem.events.recent())

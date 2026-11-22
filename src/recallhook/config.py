@@ -45,7 +45,9 @@ SETTABLE: dict[str, type] = {
     "llm_model": str, "embed_model": str, "embed_dims": int, "ollama_url": str, "port": int,
     "num_ctx": int, "keep_alive": str, "embed_on_cpu": bool, "user_id": str, "top_k": int,
     "min_score": float, "search_timeout": float, "inject": bool, "write": bool,
+    "capture_mode": str, "capture_assistant": bool, "replace_outdated": bool,
 }
+_CHOICES = {"capture_mode": ("smart", "strict")}
 _RANGES = {"port": (1, 65535), "top_k": (1, 50), "min_score": (0.0, 1.0), "embed_dims": (1, 16384),
            "num_ctx": (512, 131072), "search_timeout": (0.1, 60.0)}
 
@@ -64,6 +66,8 @@ def parse_setting(key: str, text: str):
             value = kind(text)
         except ValueError:
             raise ValueError(f"{key} must be a {kind.__name__}") from None
+    if key in _CHOICES and value not in _CHOICES[key]:
+        raise ValueError(f"{key} must be one of: {', '.join(_CHOICES[key])}")
     if key in _RANGES and not _RANGES[key][0] <= value <= _RANGES[key][1]:
         raise ValueError(f"{key} must be between {_RANGES[key][0]} and {_RANGES[key][1]}")
     return value
@@ -117,7 +121,14 @@ class Config:
     search_timeout: float = field(default_factory=lambda: _env("SEARCH_TIMEOUT", 3.0, float))
     inject: bool = field(default_factory=lambda: _env("INJECT", True, _bool))
     write: bool = field(default_factory=lambda: _env("WRITE", True, _bool))
-    queue_size: int = field(default_factory=lambda: _env("QUEUE_SIZE", 16, int))
+    # What gets captured: "smart" extracts project knowledge from nearly every prompt;
+    # "strict" only from lasting statements. capture_assistant also learns from Claude's
+    # final reply each turn (Stop hook), where most project facts surface.
+    capture_mode: str = field(default_factory=lambda: _env("CAPTURE_MODE", "smart"))
+    capture_assistant: bool = field(default_factory=lambda: _env("CAPTURE_ASSISTANT", True, _bool))
+    # When a new fact changes an old one (port 4310 -> 4311, npm -> pnpm), retire the old memory.
+    replace_outdated: bool = field(default_factory=lambda: _env("REPLACE_OUTDATED", True, _bool))
+    queue_size: int = field(default_factory=lambda: _env("QUEUE_SIZE", 32, int))
     min_chars: int = 20  # ignore trivially short user turns ("ok", "continue")
 
     @property

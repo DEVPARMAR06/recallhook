@@ -32,7 +32,8 @@ you type a prompt ──▶ Claude Code UserPromptSubmit hook ──▶ local ga
 ```
 
 - **Recall** (~50 ms): the closest memories above a relevance cutoff are added to your prompt. Each memory is injected once per session (it stays in the transcript), so it doesn't repeat and burn tokens.
-- **Capture** (background): a local model extracts lasting facts from statements like *"my project X uses..."*, *"I always..."*, *"remember..."*. Questions and one-off tasks ("write a one-liner...") are **not** stored.
+- **Capture** (background): a local model reads your prompts **and Claude's final reply each turn** and extracts what is worth remembering about the project: stack and versions, commands, ports, config, folder layout, decisions, conventions, gotchas. Most of that surfaces when Claude explores your code, not when you type it, so you don't have to say "remember". Text with nothing concrete in it (a vague task, a short lookup question) is skipped, and every extracted memory is checked against its source (see *Lessons baked in*).
+- **Forget** (explicit): start a prompt with **"Forget that ..."** (e.g. *"Forget that staging is on port 5433"*) and the best-matching memories are deleted (at most 3) and Claude confirms what went. You can also delete any memory in the dashboard.
 - **Fail-open**: if anything is down or slow, the hook does nothing and your prompt goes through untouched.
 - Everything is stored in `~/.recallhook` (Qdrant + SQLite). Nothing leaves your machine except what you type to Claude as usual.
 
@@ -87,7 +88,7 @@ recallhook init --llm-model llama3.2:3b      # same, and downloads the model if 
 recallhook config unset llm_model            # back to the default
 ```
 
-Precedence: command-line flag > `RECALLHOOK_*` environment variable > config file > default. Settable keys: `llm_model`, `embed_model`, `embed_dims`, `ollama_url`, `port`, `num_ctx`, `keep_alive`, `embed_on_cpu`, `user_id`, `top_k`, `min_score`, `search_timeout`, `inject`, `write`.
+Precedence: command-line flag > `RECALLHOOK_*` environment variable > config file > default. Settable keys: `capture_mode` (`smart` default or `strict`), `capture_assistant`, `replace_outdated`, `llm_model`, `embed_model`, `embed_dims`, `ollama_url`, `port`, `num_ctx`, `keep_alive`, `embed_on_cpu`, `user_id`, `top_k`, `min_score`, `search_timeout`, `inject`, `write`.
 
 **Changing the embedding model is different.** Vectors from different embedding models can't be mixed, so recallhook refuses a silent switch (and the dashboard shows why). Do it in three steps; your memories are kept and the old vectors are backed up:
 
@@ -119,7 +120,8 @@ Similarity scores differ between embedding models, so you may need to retune `re
 - **Upgrade:** `pipx upgrade recallhook` (or `pip install -U recallhook`), then `recallhook install`. The running service keeps its old code until restarted, and `install` restarts it.
 - **Uninstall:** `recallhook uninstall` **first**, then `pipx uninstall recallhook` (or `pip uninstall recallhook`). Doing it the other way round leaves the autostart task and hook behind. Your memories stay in `~/.recallhook`; delete that folder to erase them.
 - **"It doesn't remember anything":** run `recallhook status`. It checks, in plain words: Ollama running? Models downloaded? Embedding model matches the store? Hook installed, and does the Python it points to still exist? Gateway up? The dashboard shows the same problems in a red banner.
-- **"Nothing is being stored":** that is usually the capture filter doing its job. Only statements of lasting facts are stored ("I always...", "my project X uses...", "Atlas deploys to...", "remember..."). Questions and task requests ("fix this bug", "add a retry") are recalled for but never stored, and most coding prompts are one of those. The dashboard's **"Why some prompts aren't stored"** panel shows how many prompts were skipped and why (question, task, automated message, too short, already stored). To store something for sure, start the prompt with **"Remember that ..."**.
+- **"Nothing is being stored":** open the dashboard's **"Why some prompts aren't stored"** panel: it counts skipped prompts by reason. Usual causes: the prompt was a short question, had no concrete project details (no path, file, command, port, version or "we/my ..." statement), or was an automated message; Claude's reply was too short or had no details. Replies are learned from by the Stop hook, so after upgrading run `recallhook install` and open a new session (`recallhook status` tells you if it is missing). To store something for sure, start a prompt with **"Remember that ..."**.
+- **"A memory was replaced by mistake":** every replacement shows in the dashboard's live activity feed as `superseded` with the old and new text; click **restore old** to put it back. If the model gets this wrong for your projects, turn it off: `recallhook config set replace_outdated false`.
 - **Logs:** `~/.recallhook/logs/gateway.log`.
 - A moved or deleted Python environment breaks the hook silently (it is fail-open on purpose). `recallhook install` fixes the path.
 
@@ -149,20 +151,26 @@ We first built this as a proxy in front of the [Headroom](https://github.com/cho
 
 `recallhook ui` or `http://127.0.0.1:8788/_recallhook/ui`
 
+![replaced memories, with a restore button](https://raw.githubusercontent.com/DEVPARMAR06/recallhook/main/docs/dashboard-replaced.jpg)
+*A changed fact (dev port 4310 -> 4311) retires the old memory automatically; the old text stays in the feed with a **restore old** button.*
+
 Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day chart, a live activity feed showing which memories were recalled or stored, a **"needs attention" banner** when something is misconfigured, a **"why some prompts aren't stored"** breakdown, and search / delete for every memory. Localhost-only; writes need a custom header and a foreign `Host` header is rejected, so web pages can't reach it. Prompt text is never logged, only counts, timings and the memory snippets involved.
 
 ## Lessons baked in
 
 - **Strip the wrapper.** A new desktop session's first message starts with thousands of characters of app boilerplate. Naively searching on the start of the prompt missed the real question; recallhook strips it and searches the start *and* end of long prompts.
 - **Ignore automated turns.** Harness notifications arrive as "user" messages; they are never recalled for or stored.
-- **Don't store questions.** Capturing "what port does X use?" made mem0 write near-duplicate facts.
+- **Vague text makes a small model invent facts.** Given "look at this project and give me an overview", an 8B model either copied existing memories onto the new project (a hallucinated "port 4310" for a project that uses 4777) or made up a whole stack ("Java 17, Spring Boot"). So text without concrete details is never sent for extraction, and every extracted memory must be supported by its source text: each number, path, file and quoted command has to appear in it, and most of the other words too. On real model output this rejected 4 of 4 invented facts and kept 17 of 17 legitimate ones (small sample).
+- **Narration is not knowledge.** Even with good instructions the model sometimes records "the user ran the tests and 3 failed"; those are filtered out after extraction.
+- **Ask the model a narrow question, not an open one.** To decide whether a new fact makes an old one outdated, asking for a *list* of outdated facts made the 8B model retire valid memories (it decided "Redis on 6391" replaced "PostgreSQL on 5433"). One yes/no question per pair, with examples, was far safer.
+- **mem0 leaks earlier messages.** It feeds the last 10 stored messages into every extraction, which re-extracted old facts under the new project. recallhook turns that off (which also means mem0 no longer keeps a raw copy of every captured text).
 - **Tune Ollama.** mem0 exposes none of Ollama's options, so the gateway sets them: 4k context (the 32k default spilled a 7B model onto the CPU), thinking off (`qwen3`: 150 s → ~7 s per extraction), models kept loaded, embeddings on the CPU so recall never waits behind the LLM. Extraction 15-150 s → 5-8 s; recall max 0.05 s during writes.
 
 ## Privacy & safety
 
-- Stored locally and **unredacted**. Don't type secrets you wouldn't want remembered. Delete any memory in the dashboard, or remove `~/.recallhook`.
+- Stored locally. Obvious secrets (API keys, tokens, private keys, passwords, credentials in URLs) are masked **before** the text reaches the extraction model, and any memory that still looks like a credential is deleted; this is a best-effort pattern match, not a guarantee, so don't paste secrets you wouldn't want near a local database. Delete any memory in the dashboard, or remove `~/.recallhook`.
 - Recalled memories are added to your prompt, so those few lines reach Anthropic like anything else you type.
-- Only *your* prompts are captured, never assistant replies or tool output.
+- Captured: your prompts and **Claude's final reply each turn** (only the reply text, capped at 6,000 characters; never tool output or file contents). Anything Claude says can end up in a memory, so don't paste secrets into a session. Switch reply capture off with `recallhook config set capture_assistant false`, or capture only explicit statements with `recallhook config set capture_mode strict`.
 
 ## Limits
 
@@ -170,7 +178,8 @@ Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day cha
 - **English only.** The "is this a lasting statement?" filter, the question detector and the fact-extraction instructions are English heuristics. Other languages will mostly be skipped.
 - One shared memory per user id (no per-project scoping yet).
 - Small local models sometimes miss a fact on the first try (the writer retries once); extraction quality follows your model.
-- The capture filter favours "I always / my project / X uses / remember" phrasing. Durable facts phrased as bare commands may be skipped.
+- **Stale memories are handled, but not perfectly.** When a new fact changes an old one (dev port 4310 -> 4311, npm -> pnpm), the old memory is retired automatically: a deterministic rule covers one changed number, and the local model answers one narrow yes/no question per close memory (anything but a clear YES keeps the old one; at most 2 are retired per new fact). In a live test all three changes in a scratch project were replaced correctly. On labelled pairs the model recognised 7 of 7 true updates and kept 10 of 11 look-alikes; the other was a refinement that already contained the old fact. Every replacement is logged with the old text and the dashboard has a **restore old** button. Snapshots of work in progress ("has 46 files that may be incorrectly filed") are never stored, old memories show their age ("noted 3 weeks ago"), and you can say **"Forget that ..."** or delete in the dashboard. Switch replacement off with `recallhook config set replace_outdated false`. Facts that go stale without a newer statement (a fixed bug nobody mentioned again) can still linger.
+- Extraction is done by a small local model: it can miss a fact or word it differently, and the grounding check drops memories whose details it can't match to the source text, so a few legitimate paraphrases are lost. It never stores what the source doesn't support, which is the right trade for memory you will inject into prompts.
 
 ## Develop
 

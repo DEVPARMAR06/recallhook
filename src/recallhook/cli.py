@@ -13,6 +13,12 @@ from . import diagnostics
 from .config import SETTABLE, Config, parse_setting, read_file, update_file, config_path
 
 
+REPLY_NOTICE = ("recallhook learns project details from your prompts AND from Claude's final reply each turn "
+                "(text only, capped at 6,000 characters; never tool output or file contents). It all stays on this "
+                "machine, and obvious secrets (API keys, tokens, passwords) are masked before anything is stored. "
+                "Turn reply learning off any time: recallhook config set capture_assistant false")
+
+
 def _parser() -> argparse.ArgumentParser:
     d = Config()
     p = argparse.ArgumentParser(
@@ -48,6 +54,8 @@ def _parser() -> argparse.ArgumentParser:
     n.add_argument("--no-service", action="store_true", help="only check/download; do not install autostart")
     n.add_argument("--no-hook", action="store_true",
                    help="install the service but not the settings hook (use with the Claude Code plugin)")
+    n.add_argument("--no-assistant", action="store_true",
+                   help="do not learn from Claude's replies, only from your prompts")
 
     i = sub.add_parser("install", help="start at logon (Windows) + add the Claude Code memory hook; also upgrades")
     i.add_argument("--route-claude", action="store_true",
@@ -128,6 +136,9 @@ def status(cfg: Config) -> int:
         line(True, "Claude Code hook: " + ("provided by the recallhook plugin" if "plugin" in detail else "installed"))
     else:
         line(False, f"Claude Code hook {state}: {detail}")
+    if cfg.capture_assistant and state in ("ok", "duplicate") and not ins.has_stop_hook():
+        line(None, "Claude's replies are not being learned from yet: run `recallhook install` "
+                   "(adds the Stop hook; reload your Claude session afterwards)")
     if _gateway_up(cfg):
         s = _get(f"http://127.0.0.1:{cfg.port}/_recallhook/api/summary")
         line(True, f"gateway running: {s.get('memories')} memories, {s.get('recalls')} recalls, "
@@ -179,6 +190,15 @@ def init(cfg: Config, a) -> int:
     if a.no_service:
         print("3/3 Skipped (--no-service). Run `recallhook install` when ready.")
         return 0
+    print("Privacy: " + REPLY_NOTICE)
+    if a.no_assistant:
+        update_file("capture_assistant", False)
+        cfg.capture_assistant = False
+    elif cfg.capture_assistant and not a.yes and sys.stdin and sys.stdin.isatty():
+        if input("Learn from Claude's replies too (recommended)? [Y/n] ").strip().lower() in ("n", "no"):
+            update_file("capture_assistant", False)
+            cfg.capture_assistant = False
+    print("   replies: " + ("learned from" if cfg.capture_assistant else "NOT learned from (prompts only)"))
     print("3/3 Installing autostart + Claude Code hook...")
     ins.kill_ports(cfg.port)
     print("   ", ins.install_task("serve"))

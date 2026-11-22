@@ -169,3 +169,19 @@ def test_install_no_hook_leaves_the_hook_to_the_plugin(monkeypatch, capsys):
     assert run("install", "--no-hook") == 0
     assert called == [] and "plugin provides it" in capsys.readouterr().out
     assert run("install") == 0 and called == [True]
+
+
+# -- consent for learning from Claude's replies -------------------------------------------------------------
+def test_init_tells_you_replies_are_learned_from_and_leaves_it_on_by_default(fake_system, monkeypatch, capsys):
+    monkeypatch.setattr(diagnostics, "installed_models", lambda cfg: {"nomic-embed-text:latest", "qwen3:8b"})
+    assert run("init", "--yes") == 0
+    out = capsys.readouterr().out
+    assert "Claude's final reply" in out and "capture_assistant false" in out and "learned from" in out
+    assert "capture_assistant" not in read_file()               # default stays on, nothing silently changed
+
+
+def test_init_no_assistant_switches_reply_learning_off(fake_system, monkeypatch, capsys):
+    monkeypatch.setattr(diagnostics, "installed_models", lambda cfg: {"nomic-embed-text:latest", "qwen3:8b"})
+    assert run("init", "--yes", "--no-assistant") == 0
+    assert read_file()["capture_assistant"] is False
+    assert "NOT learned from" in capsys.readouterr().out

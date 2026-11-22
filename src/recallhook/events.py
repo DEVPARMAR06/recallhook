@@ -27,7 +27,7 @@ class EventLog:
             tokens: int = 0, detail: str = "") -> None:
         with self._lock:
             self._db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
-                             (time.time(), kind, source, hits, ms, tokens, detail[:400]))
+                             (time.time(), kind, source, hits, ms, tokens, detail[:1200]))
             self._db.commit()
 
     def recent(self, limit: int = 40) -> list[dict]:

@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+- **Smart capture:** project knowledge is now learned from nearly every prompt and from Claude's final reply each turn (new Stop hook; `recallhook install` adds it, the plugin includes it), instead of only from explicit statements. `capture_mode strict` restores the old behaviour; `capture_assistant false` turns reply capture off.
+- **No more invented memories:** text with no concrete details is skipped, every extracted memory must be grounded in its source text, and narration ("the user ran the tests") is dropped.
+- **Fixed:** mem0 fed the last 10 captured messages into each extraction, leaking old facts onto new projects. Disabled (this also stops mem0 keeping a raw copy of captured text).
+- Facts are attributed to the project folder the session ran in; a fact naming a project that its source never mentioned is rejected (the model was pinning new facts on existing projects).
+- **Stale memories:** snapshots of work in progress ("has 46 files that may be incorrectly filed") are no longer stored; recalled memories older than a week show their age; new "Forget that ..." prompt deletes the best-matching memories.
+- Fixed: the dashboard and memory count were capped at 20 memories (mem0's default limit).
+- **Outdated memories are replaced:** when a new fact changes an old one (port, version, tool), the old memory is retired automatically (one changed number: deterministic; otherwise one narrow yes/no model question per close memory; at most 2 per fact). Each replacement is logged with its old text and the dashboard has a "restore old" button. `replace_outdated false` turns it off.
+- **Secrets are masked** (API keys, tokens, private keys, passwords, credentials in URLs) before text reaches the extraction model, and any memory that still looks like a credential is deleted.
+- When the capture queue is backed up, the oldest work is dropped instead of the newest; queue size 32.
+- `recallhook init` explains that Claude's replies are learned from and asks first (`--no-assistant` to decline).
+- Fixed: a literal line break inside a JavaScript string in the dashboard (caught by a new test that scans the page script).
 - Dashboard: "Why some prompts aren't stored" panel with counts by reason (question, task, automated message, too short, already stored, ...). Only the reason is logged, never the prompt text. Skipped prompts also appear in the live activity feed.
 - README: troubleshooting entry for "nothing is being stored" and the "Remember that ..." tip.
 

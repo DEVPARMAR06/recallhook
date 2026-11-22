@@ -56,29 +56,41 @@ def _is_ours(entry: dict) -> bool:
     return any(HOOK_MARK in h.get("command", "") for h in entry.get("hooks", []))
 
 
+EVENTS = ("UserPromptSubmit", "Stop")  # recall on each prompt; learn from each reply
+
+
 def install_hook(on: bool, settings: Path = SETTINGS) -> str:
-    """Add/remove our UserPromptSubmit hook in ~/.claude/settings.json (idempotent)."""
+    """Add/remove our hooks in ~/.claude/settings.json (idempotent, other hooks are left alone)."""
     data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
     hooks = data.setdefault("hooks", {})
-    entries = [e for e in hooks.get("UserPromptSubmit", []) if not _is_ours(e)]
-    if on:
-        if settings.exists():
-            bak = settings.with_name(settings.name + ".recallhook.bak")
-            if not bak.exists():
-                shutil.copy2(settings, bak)
-        entries.append({"hooks": [{"type": "command", "command": hook_command(), "timeout": 8}]})
-        msg = "memory hook installed (UserPromptSubmit)"
-    else:
-        msg = "memory hook removed"
-    if entries:
-        hooks["UserPromptSubmit"] = entries
-    else:
-        hooks.pop("UserPromptSubmit", None)
+    if on and settings.exists():
+        bak = settings.with_name(settings.name + ".recallhook.bak")
+        if not bak.exists():
+            shutil.copy2(settings, bak)
+    for event in EVENTS:
+        entries = [e for e in hooks.get(event, []) if not _is_ours(e)]
+        if on:
+            entries.append({"hooks": [{"type": "command", "command": hook_command(), "timeout": 8}]})
+        if entries:
+            hooks[event] = entries
+        else:
+            hooks.pop(event, None)
     if not hooks:
         data.pop("hooks", None)
     settings.parent.mkdir(parents=True, exist_ok=True)
     settings.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return msg
+    return "memory hooks installed (recall on each prompt, learn from each reply)" if on else "memory hooks removed"
+
+
+def has_stop_hook(settings: Path = SETTINGS) -> bool:
+    """True if something will send Claude's replies to recallhook (our settings hook or the plugin)."""
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if any(k.startswith("recallhook@") and v for k, v in (data.get("enabledPlugins") or {}).items()):
+        return True
+    return any(_is_ours(e) for e in data.get("hooks", {}).get("Stop", []))
 
 
 # -- Windows Task Scheduler ----------------------------------------------
