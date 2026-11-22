@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "recallhook"
+version = "0.1.0"
+description = "Private, local long-term memory for Claude Code (desktop app, VS Code, terminal): a hook that recalls and stores facts with mem0 + Ollama."
+keywords = ["claude-code", "claude", "memory", "mem0", "ollama", "hooks", "local-first", "llm"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["mem0ai>=2.2", "ollama", "qdrant-client", "fastapi", "uvicorn", "httpx"]
+
+[project.optional-dependencies]
+headroom = ["headroom-ai[proxy]"]
+dev = ["pytest", "anyio"]
+
+[project.scripts]
+recallhook = "recallhook.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/recallhook"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
