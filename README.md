@@ -104,7 +104,7 @@ Live stats (memories, recalls, hit rate, latency, tokens injected), a 14-day cha
 
 ## Limits
 
-- Tested on Windows 11; macOS/Linux should work but are untested. Autostart is Windows Task Scheduler only for now.
+- Built and used on Windows 11. The unit tests also pass on Linux in CI, but the full Ollama + hook flow is untested off Windows. Autostart is Windows Task Scheduler only for now.
 - One shared memory per user id (no per-project scoping yet).
 - Small local models sometimes miss a fact on the first try (the writer retries once); extraction quality follows your model.
 - The capture filter is heuristic: it favours "I always / my project / X uses / remember" phrasing. Durable facts phrased as bare commands may be skipped.
